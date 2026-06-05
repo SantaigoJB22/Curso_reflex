@@ -2,8 +2,8 @@ import reflex as rx
 import sqlmodel 
 from datetime import datetime
 from typing import List,Optional,Dict
-from.model import Dato
-
+from .model import Dato
+from ..pages import base_page
 
 class DatoState(rx.State):
     """Estado para nuestra aplicacion de tareas"""
@@ -12,7 +12,7 @@ class DatoState(rx.State):
     new_description:str=""
 
     #Lista de tareas
-    datos=List[Dict]=[]
+    datos:List[Dict]=[]
 
     #variable de identificacion 
     editing_id:Optional[int]=None
@@ -30,7 +30,7 @@ class DatoState(rx.State):
                 for item in db_datos:
                     dato_dict=item.model_dump()
                     dato_dict["formatted_date"]=(
-                        item.created_at.strftime("%d/%m/%y %H:%M")
+                        item.created_at.strftime("%d/%m/%Y %H:%M")
                         if item.created_at
                         else ""
                     )
@@ -46,6 +46,7 @@ class DatoState(rx.State):
         """Agrega una nueva tarea"""
         title=form_data.get("title","").strip()
         description=form_data.get("description", "").strip()
+
         if not title:
             return rx.window_alert("El titulo no puede estar vacio")
         
@@ -64,19 +65,36 @@ class DatoState(rx.State):
 
                 #Mensaje de confirmacion
                 return [
-                    rx.call_script("document.getElementByID('dato_form').reset();"),
-                    rx.Window_alert("tarea agregada correctamente")
+                    rx.call_script("document.getElementById('dato_form').reset();"),
+                    rx.window_alert("tarea agregada correctamente")
                 ]
         except Exception as e:
               return rx.window_alert(f"error al guardar la tarea: {str(e)}")
                 
-        
 
-        def delete_dato(self,dato_id:int):
+
+    def toggle_complete(self,dato_id:int):
+        """Marca o desmarca una tarea como completada"""
+        try:
+            with rx.session() as session:
+                statement=sqlmodel.select(Dato).where(Dato.id==dato_id)
+                dato=session.exec(statement).first()
+                if dato:
+                    dato.completed=not dato.completed
+                    session.add(dato)
+                    session.commit()
+                    
+                    self.load_datos()
+
+
+        except Exception as e:
+            return rx.window_alert(f"Error al actualizar la tarea: {str(e)}")    
+        
+    def delete_dato(self,dato_id:int):
             """funcion para borrar datos"""
             try:
                 with rx.session() as session:
-                    dato=session.query(Dato).filter(Dato.id==dato.id).first()
+                    dato=session.query(Dato).filter(Dato.id==dato_id).first()
 
                     if dato:
                         session.delete(dato)
@@ -84,3 +102,149 @@ class DatoState(rx.State):
                         self.load_datos()
             except Exception as e:
                 return rx.window_alert(f"no se pudo eliminar la tarea: {str(e)}")
+            
+
+def dato_item(dato)->rx.Component:
+    """Componente para mostrar una tarea individual"""
+    return rx.hstack(
+        rx.checkbox(
+            is_checked=dato.completed,
+            on_change=lambda:DatoState.toggle_complete(dato.id),
+        ),
+        rx.vstack(
+            rx.text(
+                dato.title,
+                text_decoration=rx.cond(
+                    dato.completed,
+                    "line_through",
+                    "none"
+                ),
+                font_weight='bold'
+            ),
+            rx.text(
+                rx.cond(
+                    dato.description != "",
+                    dato.description,
+                    "Sin descripción"
+                ),
+                color="gray",
+                font_size="1rem"
+            ),
+            rx.hstack(
+                rx.text(
+                    "Creado:",
+                    color="gray",
+                    font_size="1rem"
+                ),
+                rx.text(
+                    dato.formatted_date,
+                    color="gray",
+                    font_size="1rem"
+                ),
+                spacing="1"
+            ),
+            align_items="start",
+            width="100%"
+        ),
+        rx.spacer(),
+        rx.button(
+            "Eliminar",
+            on_click=lambda:DatoState.delete_dato(dato.id),
+            color_scheme="red",
+            size="1"
+        ),
+        width="100%",
+        border="1px solid",
+        border_color="gray.200",
+        border_radius="5px",
+        padding="3",
+        margin_y="2"
+    )
+
+
+def dato_list():
+    """Componente para mostrar la lista de tareas"""
+    return rx.cond(
+        DatoState.datos.length() > 0,
+        rx.vstack(
+            rx.foreach(
+                DatoState.datos,
+                dato_item
+            ),
+            width="100%",
+            padding="4"
+        ),
+        rx.box(
+            rx.text(
+                "No hay tareas pendientes"
+            ),
+            padding="4",
+            text_align="center",
+            color="gray.500"
+        )
+    )
+
+
+def dato_form():
+    """formulario para agregar tareas"""
+
+    return rx.form(
+        rx.vstack(
+            rx.input(
+                placeholder='Título',
+                name='title',
+                width='100%'
+            ),
+            rx.text_area(
+                placeholder='Descripcion',
+                name='description',
+                width='100%'
+            ),
+            rx.button(
+                "agregar tarea",
+                type="submit",
+                color_scheme='purple',
+                width='100%'
+            ),
+            padding="4",
+            width='100%',
+            spacing="4"
+        ),
+        on_submit=DatoState.add_datos,
+        id="dato_form",
+        padding="4",
+        width="100%"
+    )
+
+def data_base()->rx.Component:
+    """esta es la pagina de la base de datos"""
+    data_child= rx.center(
+        rx.vstack(
+            rx.flex(
+                rx.heading(
+                    "lista de tareas",
+                    size="7",
+                    margin_y="3px",
+                    margin_x="200px",
+                    align="center",
+                    color_scheme="cyan"
+                ),
+            ),
+            rx.divider(),
+            dato_form(),
+            rx.divider(),
+            dato_list(),
+            padding="4",
+            width="100%",
+            max_width="600px",
+            border_radius="5px",
+            background_color="#0E0D0D",
+            color="dark"
+        ),
+        color_sheme="dark",
+        background_color="#111113",
+        min_height="100vh",
+        padding="4",
+        center_content=True
+    )
+    return base_page(data_child)

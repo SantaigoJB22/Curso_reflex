@@ -13,7 +13,7 @@ class Dato(sqlmodel.SQLModel,table=True):
     completed: bool = False
 
     #Establecer la fecha 
-    crated_at: datetime = sqlmodel.Field(
+    created_at: datetime = sqlmodel.Field(
         default_factory= datetime.now,
         sa_column= sqlmodel.Column(
         sqlmodel.DateTime(timezone=True),
